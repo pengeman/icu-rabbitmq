@@ -71,7 +71,10 @@ public class RabbitUtil {
         return channel;
     }
 
-    static public String getQueueName() {
-        return getProperties().getProperty("rabbitmq.queueName");
+    static public String getsendQueueName() {
+        return getProperties().getProperty("rabbitmq.sendqueueName");
+    }
+    static public String getrecQueueName() {
+        return getProperties().getProperty("rabbitmq.recqueueName");
     }
 }

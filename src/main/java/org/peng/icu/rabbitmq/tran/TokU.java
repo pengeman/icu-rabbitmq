@@ -9,14 +9,12 @@ import org.peng.Parse;
 import org.peng.Protocol;
 import org.peng.icu.rabbitmq.utils.RabbitUtil;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Scanner;
 import java.util.concurrent.TimeoutException;
-
+import static java.nio.charset.StandardCharsets.UTF_8;
 /**
  * @ClassName Send
  * @Date 2020/3/15 17:46
@@ -25,8 +23,32 @@ import java.util.concurrent.TimeoutException;
 public class TokU {
     static String EXCHANGE_NAME = "logs.topic";
     static String TYPE = "topic";
-    static String queueName = RabbitUtil.getQueueName();
+    static String sendqueueName = RabbitUtil.getsendQueueName();
+    static String recqueueName = RabbitUtil.getrecQueueName();
     static String routingKey = "file.jpg";
+
+    static private void saveFile(byte[] fileByte, String savePath) {
+        try {
+            int FILENAME_SIZE = 1024;
+            byte[] f = Arrays.copyOfRange(fileByte, 0, 1024);
+            byte[] fileData = Arrays.copyOfRange(fileByte, 1024, fileByte.length);
+            String fileName = new String(f, UTF_8).trim();
+            System.out.println(fileName);
+            File saveDir = new File(savePath);
+            if(!saveDir.exists()){
+                saveDir.mkdirs();
+            }
+            FileOutputStream out = new FileOutputStream(new File(savePath + "/" + fileName));
+
+            out.write(fileData);
+            out.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
 
     static private byte[] getFileBytes(String filePath) {
         File file = new File(filePath);
@@ -88,7 +110,7 @@ public class TokU {
             channel.exchangeDeclare(EXCHANGE_NAME, TYPE);
 
 
-            channel.queueBind(queueName, EXCHANGE_NAME, routingKey);
+            channel.queueBind(sendqueueName, EXCHANGE_NAME, routingKey);
 
             byte[] data = constr;
 
@@ -104,31 +126,7 @@ public class TokU {
         }
     }
 
-    @Deprecated
-    static private void send2(byte[] constr) {
-        Channel channel = null;
 
-        try {
-            channel = RabbitUtil.buildChannel();
-
-            boolean durable = true;
-            channel.queueDeclare(queueName, durable, false, false, null);
-
-            byte[] message = constr;
-
-            channel.basicPublish(
-                    "",
-                    queueName,
-                    MessageProperties.PERSISTENT_TEXT_PLAIN,
-                    message);
-
-        } catch (TimeoutException ex) {
-            ex.printStackTrace();
-        } catch (IOException ex) {
-            ex.printStackTrace();
-        }
-
-    }
 
     static private void rec() {
 
@@ -137,7 +135,7 @@ public class TokU {
             channel = RabbitUtil.buildChannel();
 
             boolean durable = true;
-            channel.queueDeclare(queueName, durable, false, false, null);
+            channel.queueDeclare(recqueueName, durable, false, false, null);
 
             Channel finalChannel = channel;
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
@@ -148,18 +146,30 @@ public class TokU {
                 parse.setProtos(msg);
                 protocol = parse.check();
                 if  (protocol == null) return;
-                String message = new String(protocol.getContent());
-                System.out.println(" [x] Received '" + message + "'");
+                String message = null;
+                String flag = new String(protocol.getFlagmsg());
+
+                if (flag.equals("MD")){
+                    message = new String(protocol.getContent());
+                }else if (flag.equals("DD")){
+                    String savePath = "out";
+                    byte[] filecontext = protocol.getContent();
+                    saveFile(filecontext,savePath);
+                }
+
+
+                System.out.println("--> ↘ " + message);
+
                 finalChannel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
             };
 
             boolean autoAck = false;
             channel.basicConsume(
-                    queueName,
+                    recqueueName,
                     autoAck,
                     deliverCallback,
                     consumerTag -> {
-                        System.out.println("what");
+                        System.out.println("what.........................");
                     });
         } catch (IOException e) {
             e.printStackTrace();
@@ -171,7 +181,9 @@ public class TokU {
     static private String date(){
         return new java.text.SimpleDateFormat("yyyy/MM/dd").format(new Date());
     }
+
     public static void main(String[] args) {
+        System.out.printf("rec启动");
         // 接受
         new Thread(){
             @Override
@@ -180,6 +192,7 @@ public class TokU {
             }
         }.run();
 
+        System.out.printf("send 启动");
         // 发送
         new Thread() {
             @Override
@@ -195,8 +208,8 @@ public class TokU {
                             System.exit(0);
                             break;
                         }
-                        String subbbs = bbs.substring(0, 5);
-                        String[] subbs = subbbs.split(":");
+                        String subbbs = "";
+                        String[] subbs = bbs.split(":");
                         subbbs = subbs[0];
                         String substr = subbs[1];
                         if (StringUtils.equals(subbbs, "f") || StringUtils.equals(subbbs, "file")) {
